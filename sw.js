@@ -1,6 +1,13 @@
 /* Hyrox Trainer — service worker.
-   Bump CACHE when you change index.html, or the old copy keeps being served. */
-const CACHE = 'hyrox-v5';
+
+   The page itself is NETWORK FIRST: when you have signal you always get the
+   current build, and the cached copy is only there for offline. That is the
+   whole point — a cache-first page can keep serving a stale app for days on
+   iOS, which is exactly what went wrong before.
+
+   Icons, fonts and the manifest stay cache first; they rarely change and the
+   CACHE name below is bumped when they do. */
+const CACHE = 'hyrox-v6';
 const SHELL = [
   './',
   './index.html',
@@ -24,13 +31,31 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+/* is this a request for the app page itself? */
+function isPage(req, url) {
+  return req.mode === 'navigate' ||
+         url.pathname.endsWith('/') ||
+         url.pathname.endsWith('/index.html');
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // App shell and anything else on our own origin: cache first, fall back to network.
   if (url.origin === self.location.origin) {
+    if (isPage(req, url)) {
+      /* network first: fresh when online, cached copy when not */
+      e.respondWith(
+        fetch(req).then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
+          return res;
+        }).catch(() => caches.match('./index.html').then((hit) => hit || caches.match('./')))
+      );
+      return;
+    }
+    /* everything else on our own origin: cache first */
     e.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         const copy = res.clone();
@@ -41,8 +66,8 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Google Fonts: cache whatever we successfully fetch, so the typography
-  // survives offline after the first online run.
+  /* Google Fonts: cache whatever we successfully fetch, so the typography
+     survives offline after the first online run. */
   if (url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
     e.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {

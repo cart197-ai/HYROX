@@ -763,6 +763,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
+var BUILD = 'v6 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 var HEVY = {key:'', last:0, lastMsg:'', over:false};
 var HEVY_BUSY = false;
 function hevyLoad(){ try{ var h=JSON.parse(localStorage.getItem('hyroxhevy')||'null'); if(h) HEVY=Object.assign(HEVY,h); }catch(e){} }
@@ -960,6 +961,7 @@ function viewSetup(){
        '<div class="kv"><span>Plan runs</span><span>'+fmt(SESSIONS[0].date)+' → '+fmt(last.date)+'</span></div>'+
        '<div class="kv"><span>Sessions touched</span><span>'+logged+' of 48</span></div>'+
        '<div class="kv"><span>Log stored</span><span>on this phone</span></div>'+
+       '<div class="kv"><span>Build</span><span>'+BUILD+'</span></div>'+
        '<div class="btnrow"><button class="btn danger" id="wipeP">Clear all logged data</button></div>'+
        '</div>';
 
