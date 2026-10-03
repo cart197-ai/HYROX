@@ -7,7 +7,7 @@
 
    Icons, fonts and the manifest stay cache first; they rarely change and the
    CACHE name below is bumped when they do. */
-const CACHE = 'hyrox-v6';
+const CACHE = 'hyrox-v7';
 const SHELL = [
   './',
   './index.html',
