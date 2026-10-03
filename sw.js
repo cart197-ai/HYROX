@@ -7,7 +7,7 @@
 
    Icons, fonts and the manifest stay cache first; they rarely change and the
    CACHE name below is bumped when they do. */
-const CACHE = 'hyrox-v7';
+const CACHE = 'hyrox-v8';
 const SHELL = [
   './',
   './index.html',
@@ -45,9 +45,13 @@ self.addEventListener('fetch', (e) => {
 
   if (url.origin === self.location.origin) {
     if (isPage(req, url)) {
-      /* network first: fresh when online, cached copy when not */
+      /* Network first, and cache:'reload' so this skips the browser's OWN http
+         cache as well as ours. Without it a plain fetch() can be answered from
+         the http cache and the app still boots an old build — which is exactly
+         why the installed icon stayed stale while a ?v= URL in the browser came
+         back current. */
       e.respondWith(
-        fetch(req).then((res) => {
+        fetch(url.href, { cache: 'reload', credentials: 'same-origin' }).then((res) => {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
           return res;

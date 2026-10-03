@@ -763,7 +763,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
-var BUILD = 'v7 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
+var BUILD = 'v8 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 var HEVY = {key:'', last:0, lastMsg:'', over:false};
 var HEVY_BUSY = false;
 function hevyLoad(){ try{ var h=JSON.parse(localStorage.getItem('hyroxhevy')||'null'); if(h) HEVY=Object.assign(HEVY,h); }catch(e){} }
@@ -1420,7 +1420,7 @@ if('serviceWorker' in navigator){
     location.reload();
   });
   window.addEventListener('load', function(){
-    navigator.serviceWorker.register('sw.js').then(function(reg){
+    navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(function(reg){
       try{ reg.update(); }catch(e){}
       setInterval(function(){ try{ reg.update(); }catch(e){} }, 3600000);
     }).catch(function(){});
