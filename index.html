@@ -7,8 +7,8 @@
 <meta name="theme-color" content="#121617" media="(prefers-color-scheme: dark)">
 <meta name="description" content="12-week Hyrox training plan with set-by-set logging.">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-192.png">
-<link rel="icon" href="favicon-64.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/favicon-64.png" type="image/png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Hyrox">
@@ -478,9 +478,17 @@ function restFor(item){
   var by = (CFG.rest && CFG.rest.by) || {};
   return by[item.name] != null ? by[item.name] : (DEFREST[item.track] || 90);
 }
+/* A session sits on its planned date until something says otherwise. A session
+   synced from Hevy carries the date it was actually done (LOG[id].date), and
+   that always wins — the calendar shows the day you trained, not the day the
+   plan hoped you would. s.planned keeps the original so the gap can be shown. */
 function rebuild(){
   SESSIONS.forEach(function(s){
-    s.date = isoOf(addDays(CFG.start, (s.w-1)*7 + CFG.days[s.d-1]));
+    var planned = isoOf(addDays(CFG.start, (s.w-1)*7 + CFG.days[s.d-1]));
+    var L = (typeof LOG !== 'undefined' && LOG) ? LOG[s.id] : null;
+    s.planned = planned;
+    s.date    = (L && L.date) ? L.date : planned;
+    s.moved   = s.date !== planned;
   });
 }
 rebuild();
@@ -532,7 +540,7 @@ function toast(msg){
 
 function save(id){ lsSet(); }
 
-LOG = lsGet(); cfgLoad(); rebuild();
+LOG = lsGet(); cfgLoad(); rebuild();   /* hevyLoad() runs with the Hevy block below */
 
 
 /* ================= HELPERS ================= */
@@ -730,7 +738,10 @@ function viewHistory(){
   var done = SESSIONS.filter(function(s){ return stateOf(s)!=='todo'; });
   if(!done.length) return '<div class="empty">Nothing logged yet.<br>Open a session and tick a set — it will show up here.</div>';
   var h = '';
-  done.slice().reverse().forEach(function(s){
+  /* ordered by the date actually trained, not the plan's running order —
+     a session moved by a Hevy sync lands in the right place in the list */
+  done.slice().sort(function(a,b){ return a.date < b.date ? 1 : a.date > b.date ? -1 : b.w-a.w || b.d-a.d; })
+      .forEach(function(s){
     var L = LOG[s.id]||{}, lg = L.log||{}, vol = 0, sets = 0;
     Object.keys(lg).forEach(function(i){ Object.keys(lg[i]).forEach(function(j){
       var r = lg[i][j]; if(!r||!r.done) return; sets++;
@@ -740,10 +751,184 @@ function viewHistory(){
     h += '<button class="srow" data-open="'+s.id+'">'+
          '<span class="when">'+DOW[dt.getDay()]+'<b>'+dt.getDate()+'</b>'+MON[dt.getMonth()]+'</span>'+
          '<span class="body"><span class="t">'+esc(s.title)+'</span>'+
-         '<span class="s">'+sets+' sets logged'+(vol?' · '+Math.round(vol).toLocaleString()+' kg volume':'')+'</span></span>'+
+         '<span class="s">'+sets+' sets logged'+(vol?' · '+Math.round(vol).toLocaleString()+' kg volume':'')+
+           (s.moved?' · moved from '+fmt(s.planned):'')+(L.src==='hevy'?' · Hevy':'')+'</span></span>'+
          '<span class="sq '+calState(s)+'" role="img" aria-label="'+Math.round(pctOf(s)*100)+'% done" title="'+Math.round(pctOf(s)*100)+'% done"></span></button>';
   });
   return h;
+}
+
+/* ================= HEVY SYNC =================
+   Hevy is where the workout is logged; this page is the plan and the overview.
+   Sync pulls finished workouts back, with the numbers actually lifted, and
+   dates each session to the day it was really done. The key lives in this
+   browser only — it is never part of the file. */
+var HEVY = {key:'', last:0, lastMsg:'', over:false};
+var HEVY_BUSY = false;
+function hevyLoad(){ try{ var h=JSON.parse(localStorage.getItem('hyroxhevy')||'null'); if(h) HEVY=Object.assign(HEVY,h); }catch(e){} }
+function hevySave(){ try{ localStorage.setItem('hyroxhevy', JSON.stringify(HEVY)); }catch(e){} }
+hevyLoad();   /* must run after HEVY exists, not with the other loaders above */
+
+function hevyGet(path){
+  return fetch('https://api.hevyapp.com/v1/'+path, {headers:{'api-key':HEVY.key, 'accept':'application/json'}})
+    .then(function(r){
+      if(r.status===401 || r.status===403) throw new Error('Hevy rejected the key');
+      if(r.status===429) throw new Error('Hevy is rate limiting — wait a minute and try again');
+      if(!r.ok) throw new Error('Hevy returned '+r.status);
+      return r.json();
+    });
+}
+/* page through an endpoint; stop() can end it early once we are past the plan */
+function hevyAll(path, key, cap, stop){
+  var out = [], page = 1;
+  function next(){
+    return hevyGet(path+(path.indexOf('?')>-1?'&':'?')+'page='+page+'&pageSize=10').then(function(j){
+      var rows = j[key] || [];
+      out = out.concat(rows);
+      if(stop && stop(rows)) return out;
+      if(page >= (j.page_count||1) || page >= cap) return out;
+      page++;
+      return next();
+    });
+  }
+  return next();
+}
+
+function hevyMmss(sec){
+  if(sec==null) return '';
+  return Math.floor(sec/60)+':'+String(Math.round(sec)%60).padStart(2,'0');
+}
+
+/* Hevy exercises -> this page's items.
+   D1-D3 were generated from the same plan, so they line up one for one.
+   D4 is rounds: Hevy holds a run and its station as a superset, which is
+   exactly one round here, so the supersets are the grouping. */
+function hevyGroups(s, w){
+  var ex = w.exercises || [];
+  var rounds = s.d === 4 && ex.some(function(e){ return e.superset_id != null; });
+  if(!rounds && ex.length === s.items.length) return ex.map(function(e){ return [e]; });
+  if(s.d === 4){
+    var order = [], by = {};
+    ex.forEach(function(e){
+      var k = (e.superset_id==null) ? 'x'+e.index : 's'+e.superset_id;
+      if(!by[k]){ by[k] = []; order.push(k); }
+      by[k].push(e);
+    });
+    return order.map(function(k){ return by[k]; });
+  }
+  return ex.slice(0, s.items.length).map(function(e){ return [e]; });
+}
+
+/* write one finished Hevy workout into this page's log */
+function hevyApply(s, w){
+  var L = {status:'done', log:{}, extra:{},
+           startedAt: Date.parse(w.start_time), finishedAt: Date.parse(w.end_time),
+           date: isoOf(new Date(w.start_time)), src:'hevy', hevyId: w.id};
+  var groups = hevyGroups(s, w), n = 0;
+
+  groups.forEach(function(g, i){
+    if(i >= s.items.length) return;
+    var track = s.items[i].track;
+
+    if(track === 'time' && g.length > 1){
+      /* a whole round collapses to one line here: total its work time */
+      var secs = 0, any = false;
+      g.forEach(function(e){ (e.sets||[]).forEach(function(st){
+        if(st.duration_seconds!=null) secs += st.duration_seconds;
+        if(st.duration_seconds!=null||st.distance_meters!=null||st.reps!=null) any = true;
+      });});
+      if(!any) return;
+      L.log[i] = {0:{time: secs?hevyMmss(secs):'', done:true}};
+      n++;
+      return;
+    }
+
+    var sets = [];
+    g.forEach(function(e){ sets = sets.concat(e.sets||[]); });
+    if(!sets.length) return;
+    L.log[i] = {};
+    sets.forEach(function(st, j){
+      var r = {done:true};
+      if(st.weight_kg      != null) r.kg   = String(st.weight_kg);
+      if(st.reps           != null) r.reps = String(st.reps);
+      if(st.distance_meters!= null) r.m    = String(st.distance_meters);
+      if(st.duration_seconds!=null) r.time = hevyMmss(st.duration_seconds);
+      L.log[i][j] = r;
+      n++;
+    });
+    if(sets.length !== s.items[i].sets) L.extra[i] = sets.length;
+  });
+
+  L.sets = n;
+  return L;
+}
+
+/* a session the user has ticked by hand, not one this sync wrote */
+function hevyManual(id){
+  var L = LOG[id];
+  if(!L || L.src==='hevy') return false;
+  var lg = L.log||{}, any = false;
+  Object.keys(lg).forEach(function(i){ Object.keys(lg[i]).forEach(function(j){ if(lg[i][j]&&lg[i][j].done) any=true; }); });
+  return any;
+}
+
+function hevySync(){
+  if(HEVY_BUSY) return;
+  if(!HEVY.key){ toast('Paste your Hevy API key first'); return; }
+  HEVY_BUSY = true; render();
+
+  var map = {}, synced = 0, moved = 0, skipped = 0, best = {};
+
+  hevyAll('routine_folders','routine_folders',20)
+  .then(function(folders){
+    var fw = {};
+    folders.forEach(function(f){
+      var m = /Hyrox\s*W(\d+)/i.exec(f.title||'');
+      if(m) fw[f.id] = +m[1];
+    });
+    return hevyAll('routines','routines',40).then(function(routines){
+      routines.forEach(function(r){
+        var w = fw[r.folder_id], d = /^D(\d)/.exec(r.title||'');
+        if(w && d) map[r.id] = 'w'+w+'d'+(+d[1]);
+      });
+    });
+  })
+  .then(function(){
+    if(!Object.keys(map).length) throw new Error('No Hyrox week folders found in Hevy');
+    /* workouts come back newest first; stop once we are well before the plan */
+    var floor = isoOf(addDays(CFG.start, -14));
+    return hevyAll('workouts','workouts',40, function(rows){
+      return rows.length && rows.every(function(w){ return isoOf(new Date(w.start_time)) < floor; });
+    });
+  })
+  .then(function(workouts){
+    workouts.forEach(function(w){
+      var id = map[w.routine_id];
+      if(!id) return;
+      var t = Date.parse(w.start_time);
+      if(!best[id] || t > best[id].t) best[id] = {t:t, w:w};   /* latest wins */
+    });
+    Object.keys(best).forEach(function(id){
+      if(!HEVY.over && hevyManual(id)){ skipped++; return; }
+      var s = byId(id); if(!s) return;
+      var L = hevyApply(s, best[id].w);
+      if(!Object.keys(L.log).length) return;
+      if(L.date !== s.planned) moved++;
+      LOG[id] = L; synced++;
+    });
+    lsSet(); rebuild();
+    HEVY.last = Date.now();
+    HEVY.lastMsg = synced+' session'+(synced===1?'':'s')+' synced'+
+                   (moved?' · '+moved+' re-dated to the day you trained':'')+
+                   (skipped?' · '+skipped+' left alone (logged by hand)':'');
+    hevySave();
+    toast(synced ? HEVY.lastMsg : 'Nothing new to sync');
+  })
+  .catch(function(e){
+    HEVY.lastMsg = 'Failed: '+e.message; hevySave();
+    toast(HEVY.lastMsg);
+  })
+  .then(function(){ HEVY_BUSY = false; render(); });
 }
 
 /* ================= SETUP ================= */
@@ -788,6 +973,19 @@ function viewSetup(){
        '<button class="btn ghost" id="rReset">Reset rest times</button></div>'+
        '</div>';
 
+  var hv = SESSIONS.filter(function(s){ return (LOG[s.id]||{}).src==='hevy'; }).length;
+  h += '<div class="set-sec"><h3>Hevy sync</h3>'+
+       '<p class="hint">Log the workout in Hevy; pull it back here with the weights and reps you actually did. Each session is dated to the day you trained it, not the day the plan put it.</p>'+
+       '<div class="field"><label>Hevy API key</label>'+
+       '<input type="password" id="hevyK" placeholder="paste from Hevy → Settings" value="'+esc(HEVY.key)+'" autocomplete="off" spellcheck="false"></div>'+
+       '<p class="hint">Stored in this browser only. Hevy PRO issues the key and you can revoke it there any time.</p>'+
+       tgl('hevyOver','Overwrite hand-logged sessions','Off: a session you ticked here yourself is never touched', HEVY.over)+
+       '<div class="btnrow"><button class="btn" id="hevyS"'+(HEVY_BUSY?' disabled':'')+'>'+(HEVY_BUSY?'Syncing…':'Sync from Hevy')+'</button></div>'+
+       '<div class="kv"><span>Sessions from Hevy</span><span>'+hv+'</span></div>'+
+       (HEVY.last?'<div class="kv"><span>Last sync</span><span>'+fmt(isoOf(new Date(HEVY.last)))+'</span></div>':'')+
+       (HEVY.lastMsg?'<p class="hint" style="margin-top:9px">'+esc(HEVY.lastMsg)+'</p>':'')+
+       '</div>';
+
   h += '<div class="set-sec"><h3>Backup</h3>'+
        '<p class="hint">Your log lives on this phone. Export it before changing devices or clearing browser data — the file is small and imports straight back.</p>'+
        '<div class="btnrow">'+
@@ -827,6 +1025,16 @@ function wireSetup(){
   var rr = document.getElementById('rReset');
   if(rr) rr.onclick = function(){ CFG.rest.by = {}; cfgSave(); toast('Rest times back to defaults'); };
 
+  var hk = document.getElementById('hevyK');
+  if(hk) hk.onchange = function(){ HEVY.key = hk.value.trim(); hevySave(); };
+  var ho = document.getElementById('hevyOver');
+  if(ho) ho.onclick = function(){ HEVY.over = !HEVY.over; hevySave(); render(); };
+  var hs = document.getElementById('hevyS');
+  if(hs) hs.onclick = function(){
+    if(hk) { HEVY.key = hk.value.trim(); hevySave(); }
+    hevySync();
+  };
+
   var sd = document.getElementById('startD');
   if(sd) sd.onchange = function(){ DRAFT.start = sd.value || DRAFT.start; render(); };
 
@@ -841,19 +1049,20 @@ function wireSetup(){
 
   var mv = document.getElementById('moveP');
   if(mv) mv.onclick = function(){
-    CFG = {start:DRAFT.start, days:DRAFT.days.slice()};
+    CFG.start = DRAFT.start; CFG.days = DRAFT.days.slice();   /* keep rest settings */
     cfgSave(); rebuild(); DRAFT=null; view='today'; syncNav(); render();
     toast('Plan moved — log kept');
   };
 
   arm('restartP', 'Restart plan · clear log', 'Tap again to wipe and restart', function(){
-    CFG = {start:DRAFT.start, days:DRAFT.days.slice()};
-    cfgSave(); rebuild(); wipeLog(); DRAFT=null; view='today'; syncNav(); render();
+    CFG.start = DRAFT.start; CFG.days = DRAFT.days.slice();
+    cfgSave(); wipeLog(); rebuild();   /* wipe first: rebuild reads the log for dates */
+    DRAFT=null; view='today'; syncNav(); render();
     toast('Plan restarted');
   });
 
   arm('wipeP', 'Clear all logged data', 'Tap again to clear everything', function(){
-    wipeLog(); render(); toast('Log cleared');
+    wipeLog(); rebuild(); render(); toast('Log cleared');
   });
 
   var ex = document.getElementById('exportP');
@@ -1006,7 +1215,8 @@ function openSession(id){
   el.innerHTML =
    '<div class="shead"><div class="shead-in">'+
      '<button class="x" id="closeS" aria-label="Close">\u2715</button>'+
-     '<div class="ttl"><div class="k">Week '+s.w+' \u00b7 Day '+s.d+' \u00b7 '+fmt(s.date)+'</div><h2>'+esc(s.title)+'</h2></div>'+
+     '<div class="ttl"><div class="k">Week '+s.w+' \u00b7 Day '+s.d+' \u00b7 '+fmt(s.date)+
+       (s.moved?' \u00b7 planned '+fmt(s.planned):'')+'</div><h2>'+esc(s.title)+'</h2></div>'+
      '<div class="clock" id="clock">\u2013:\u2013\u2013</div>'+
    '</div></div>'+
    '<div class="scroll"><div class="wrap" id="sbody"></div></div>'+

@@ -1,13 +1,13 @@
 /* Hyrox Trainer — service worker.
    Bump CACHE when you change index.html, or the old copy keeps being served. */
-const CACHE = 'hyrox-flat-v1';
+const CACHE = 'hyrox-v5';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './icon-192.png',
-  './icon-512.png',
-  './icon-maskable-512.png'
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-maskable-512.png'
 ];
 
 self.addEventListener('install', (e) => {
