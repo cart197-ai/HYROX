@@ -7,7 +7,7 @@
 
    Icons, fonts and the manifest stay cache first; they rarely change and the
    CACHE name below is bumped when they do. */
-const CACHE = 'hyrox-v8';
+const CACHE = 'hyrox-v9';
 const SHELL = [
   './',
   './index.html',
@@ -32,10 +32,14 @@ self.addEventListener('activate', (e) => {
 });
 
 /* is this a request for the app page itself? */
+/* The page, and the manifest — the manifest decides what the installed app
+   points at, so a cached copy of it can keep minting an app aimed at an old
+   address. Both are fetched fresh whenever there is a network. */
 function isPage(req, url) {
   return req.mode === 'navigate' ||
          url.pathname.endsWith('/') ||
-         url.pathname.endsWith('/index.html');
+         url.pathname.endsWith('/index.html') ||
+         url.pathname.endsWith('.webmanifest');
 }
 
 self.addEventListener('fetch', (e) => {
@@ -50,12 +54,18 @@ self.addEventListener('fetch', (e) => {
          the http cache and the app still boots an old build — which is exactly
          why the installed icon stayed stale while a ?v= URL in the browser came
          back current. */
+      const isManifest = url.pathname.endsWith('.webmanifest');
       e.respondWith(
         fetch(url.href, { cache: 'reload', credentials: 'same-origin' }).then((res) => {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
+          /* the offline copy of a navigation is always filed as index.html, so
+             any entry URL falls back to the same page; the manifest keeps its own */
+          caches.open(CACHE)
+            .then((c) => c.put(isManifest ? './manifest.webmanifest' : './index.html', copy))
+            .catch(() => {});
           return res;
-        }).catch(() => caches.match('./index.html').then((hit) => hit || caches.match('./')))
+        }).catch(() => caches.match(isManifest ? './manifest.webmanifest' : './index.html')
+                        .then((hit) => hit || caches.match('./')))
       );
       return;
     }
