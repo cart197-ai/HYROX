@@ -564,9 +564,23 @@ function doneCount(s){
   Object.keys(lg).forEach(function(i){ Object.keys(lg[i]).forEach(function(j){ if(lg[i][j]&&lg[i][j].done) n++; }); });
   return n;
 }
-function totalSets(s){ return s.items.reduce(function(a,it){ return a + (LOG[s.id] && LOG[s.id].extra && LOG[s.id].extra[s.items.indexOf(it)] || it.sets); },0); }
-function setsOf(s,i){ var ex = LOG[s.id] && LOG[s.id].extra; return (ex && ex[i]) || s.items[i].sets; }
-function estMin(s){ return s.d===4 ? 45 + s.items.length*8 : 35 + s.items.length*6; }
+/* The plan's own exercises, plus anything a Hevy sync found in that session
+   which the plan did not call for — a substitution, or extra work you added on
+   the day. Extras hang off the log entry, so they belong to that one session
+   and disappear with it if the log is cleared. */
+function itemsOf(s){
+  var ex = LOG[s.id] && LOG[s.id].extraItems;
+  return (ex && ex.length) ? s.items.concat(ex) : s.items;
+}
+function totalSets(s){
+  var its = itemsOf(s), ov = (LOG[s.id] && LOG[s.id].extra) || {};
+  return its.reduce(function(a, it, i){ return a + (ov[i] || it.sets); }, 0);
+}
+function setsOf(s,i){
+  var ov = LOG[s.id] && LOG[s.id].extra, its = itemsOf(s);
+  return (ov && ov[i]) || (its[i] && its[i].sets) || 1;
+}
+function estMin(s){ var n = itemsOf(s).length; return s.d===4 ? 45 + n*8 : 35 + n*6; }
 
 function nextSession(){
   var t = today();
@@ -606,11 +620,11 @@ function viewToday(){
        '<div class="eyebrow'+(s.test?' sig':'')+'"><span class="dot"></span>'+esc(s.phase)+' · week '+s.w+' · day '+s.d+'</div>'+
        '<div class="date">'+fmt(s.date)+'</div>'+
        '<h2>'+esc(s.title)+'</h2>'+
-       '<div class="meta"><span>'+s.items.length+' exercises</span><span>'+totalSets(s)+' sets</span><span>~'+estMin(s)+' min</span></div>'+
+       '<div class="meta"><span>'+itemsOf(s).length+' exercises</span><span>'+totalSets(s)+' sets</span><span>~'+estMin(s)+' min</span></div>'+
        '<button class="btn" data-open="'+s.id+'">'+(stateOf(s)==='todo'?'Start workout':stateOf(s)==='prog'?'Resume workout':'Review workout')+'</button>'+
        '</div>';
   h += '<div class="peek"><h4>What is in it</h4><ul>';
-  s.items.forEach(function(it){
+  itemsOf(s).forEach(function(it){
     h += '<li><span>'+esc(it.name)+'</span><span>'+it.sets+' × '+esc(it.rep)+'</span></li>';
   });
   h += '</ul></div></article>';
@@ -722,7 +736,7 @@ function viewPlan(){
         h += '<button class="srow'+(x.test?' test':'')+'"'+(x.rest?'':' data-open="'+x.id+'"')+'>'+
              '<span class="when">'+DOW[dt2.getDay()]+'<b>'+dt2.getDate()+'</b>'+MON[dt2.getMonth()]+'</span>'+
              '<span class="body"><span class="t">'+esc(x.title)+'</span>'+
-             '<span class="s">'+(x.rest?'no session':x.items.length+' exercises · '+doneCount(x)+'/'+totalSets(x)+' sets')+'</span></span>'+
+             '<span class="s">'+(x.rest?'no session':itemsOf(x).length+' exercises · '+doneCount(x)+'/'+totalSets(x)+' sets')+'</span></span>'+
              '<span class="sq '+st+'" role="img" aria-label="'+
                (x.rest?'rest day':st==='done'?'done':st==='part'?Math.round(pctOf(x)*100)+'% done':'not started')+
                '" title="'+(x.rest?'Rest day':st==='done'?'Done':st==='part'?Math.round(pctOf(x)*100)+'% done':'Not started')+'"></span>'+
@@ -763,7 +777,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
-var BUILD = 'v13 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
+var BUILD = 'v14 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 
 /* Which file did this page actually come from, and is it running as an
    installed app or inside the browser? Without this you cannot tell a stale
@@ -818,32 +832,82 @@ function hevyMmss(sec){
   return Math.floor(sec/60)+':'+String(Math.round(sec)%60).padStart(2,'0');
 }
 
+/* What kind of thing is this, judged by what Hevy recorded against it? Used for
+   an exercise the plan never mentioned, so there is no track to look up. */
+function hevyTrack(sets){
+  var f = (sets && sets[0]) || {};
+  var kg = f.weight_kg != null, reps = f.reps != null,
+      m = f.distance_meters != null, sec = f.duration_seconds != null;
+  if(m && kg)  return 'kgm';
+  if(m)        return 'mt';
+  if(kg)       return 'wr';
+  if(reps)     return 'reps';
+  if(sec)      return 'time';
+  return 'reps';
+}
+function hevyRepLabel(sets){
+  var f = (sets && sets[0]) || {};
+  if(f.reps != null)             return String(f.reps);
+  if(f.distance_meters != null)  return f.distance_meters + ' m';
+  if(f.duration_seconds != null) return hevyMmss(f.duration_seconds);
+  return '1';
+}
+
 /* Hevy exercises -> this page's items.
-   D1-D3 were generated from the same plan, so they line up one for one.
-   D4 is rounds: Hevy holds a run and its station as a superset, which is
-   exactly one round here, so the supersets are the grouping. */
-function hevyGroups(s, w){
-  var ex = w.exercises || [];
-  var rounds = s.d === 4 && ex.some(function(e){ return e.superset_id != null; });
-  if(!rounds && ex.length === s.items.length) return ex.map(function(e){ return [e]; });
-  if(s.d === 4){
+
+   Matching is by EXERCISE, not by position. Position was wrong the moment a
+   session stopped being exactly the plan: add calf raises in the middle and
+   every exercise after it shifts onto the wrong line, silently. The Hevy
+   routine gives the canonical order of template ids, so each plan item claims
+   the workout exercise that actually corresponds to it.
+
+   Whatever is left over is something the plan did not ask for — a swap, or
+   extra work — and comes back as an extra rather than being dropped.
+
+   D4 is different: Hevy holds a run and its station as a superset, which is one
+   round here, so rounds are grouped by superset and anything outside those
+   supersets is an extra. */
+function hevyGroups(s, w, planIds){
+  var ex = (w.exercises || []).slice(), used = [], groups = [], i;
+  for(i = 0; i < ex.length; i++) used.push(false);
+
+  if(s.d === 4 && ex.some(function(e){ return e.superset_id != null; })){
     var order = [], by = {};
-    ex.forEach(function(e){
-      var k = (e.superset_id==null) ? 'x'+e.index : 's'+e.superset_id;
-      if(!by[k]){ by[k] = []; order.push(k); }
-      by[k].push(e);
+    ex.forEach(function(e, k){
+      if(e.superset_id == null) return;
+      var key = 's' + e.superset_id;
+      if(!by[key]){ by[key] = []; order.push(key); }
+      by[key].push(e); used[k] = true;
     });
-    return order.map(function(k){ return by[k]; });
+    groups = order.map(function(key){ return by[key]; });
+    /* a round beyond what the plan lists is extra work, not a round */
+    var over = groups.splice(s.items.length);
+    var leftover = ex.filter(function(e, k){ return !used[k]; });
+    over.forEach(function(g){ leftover = leftover.concat(g); });
+    return {groups: groups, extras: leftover};
   }
-  return ex.slice(0, s.items.length).map(function(e){ return [e]; });
+
+  var byId = planIds && planIds.length === s.items.length;
+  groups = s.items.map(function(_, idx){
+    if(byId){
+      var want = planIds[idx];
+      for(var k = 0; k < ex.length; k++){
+        if(!used[k] && want && ex[k].exercise_template_id === want){ used[k] = true; return [ex[k]]; }
+      }
+      return [];
+    }
+    if(idx < ex.length && !used[idx]){ used[idx] = true; return [ex[idx]]; }
+    return [];
+  });
+  return {groups: groups, extras: ex.filter(function(e, k){ return !used[k]; })};
 }
 
 /* write one finished Hevy workout into this page's log */
-function hevyApply(s, w){
-  var L = {status:'done', log:{}, extra:{},
+function hevyApply(s, w, planIds){
+  var L = {status:'done', log:{}, extra:{}, extraItems:[],
            startedAt: Date.parse(w.start_time), finishedAt: Date.parse(w.end_time),
            date: isoOf(new Date(w.start_time)), src:'hevy', hevyId: w.id};
-  var groups = hevyGroups(s, w), n = 0;
+  var mapped = hevyGroups(s, w, planIds), groups = mapped.groups, n = 0;
 
   groups.forEach(function(g, i){
     if(i >= s.items.length) return;
@@ -878,6 +942,33 @@ function hevyApply(s, w){
     if(sets.length !== s.items[i].sets) L.extra[i] = sets.length;
   });
 
+  /* anything the plan did not ask for, appended so it is visible rather than
+     silently discarded — a substitution shows up here, and the exercise it
+     replaced simply stays unticked, which is the truth of what happened */
+  mapped.extras.forEach(function(e){
+    var sets = e.sets || [];
+    if(!sets.length) return;
+    var idx = s.items.length + L.extraItems.length;
+    L.extraItems.push({
+      name: e.title || 'Extra exercise',
+      track: hevyTrack(sets),
+      sets: sets.length,
+      rep: hevyRepLabel(sets),
+      target: 'added in Hevy',
+      fromHevy: true
+    });
+    L.log[idx] = {};
+    sets.forEach(function(st, j){
+      var r = {done:true};
+      if(st.weight_kg      != null) r.kg   = String(st.weight_kg);
+      if(st.reps           != null) r.reps = String(st.reps);
+      if(st.distance_meters!= null) r.m    = String(st.distance_meters);
+      if(st.duration_seconds!=null) r.time = hevyMmss(st.duration_seconds);
+      L.log[idx][j] = r;
+      n++;
+    });
+  });
+
   L.sets = n;
   return L;
 }
@@ -896,7 +987,7 @@ function hevySync(){
   if(!HEVY.key){ toast('Paste your Hevy API key first'); return; }
   HEVY_BUSY = true; render();
 
-  var map = {}, synced = 0, moved = 0, skipped = 0, matched = 0, best = {};
+  var map = {}, ids = {}, synced = 0, moved = 0, skipped = 0, matched = 0, best = {};
 
   hevyAll('routine_folders','routine_folders',20)
   .then(function(folders){
@@ -908,7 +999,12 @@ function hevySync(){
     return hevyAll('routines','routines',40).then(function(routines){
       routines.forEach(function(r){
         var w = fw[r.folder_id], d = /^D(\d)/.exec(r.title||'');
-        if(w && d) map[r.id] = 'w'+w+'d'+(+d[1]);
+        if(w && d){
+          map[r.id] = 'w'+w+'d'+(+d[1]);
+          /* the routine's own exercise order is the bridge between a plan item
+             and the workout exercise that belongs to it */
+          ids[r.id] = (r.exercises||[]).map(function(e){ return e.exercise_template_id; });
+        }
       });
     });
   })
@@ -931,7 +1027,7 @@ function hevySync(){
     Object.keys(best).forEach(function(id){
       if(!HEVY.over && hevyManual(id)){ skipped++; return; }
       var s = byId(id); if(!s) return;
-      var L = hevyApply(s, best[id].w);
+      var L = hevyApply(s, best[id].w, ids[best[id].w.routine_id]);
       if(!Object.keys(L.log).length) return;
       if(L.date !== s.planned) moved++;
       LOG[id] = L; synced++;
@@ -1318,8 +1414,8 @@ function tick(){
 
 function drawSets(){
   var s = byId(openId), L = LOG[openId], h = '';
-  s.items.forEach(function(it,i){
-    var flds = FIELDS[it.track], n = setsOf(s,i);
+  itemsOf(s).forEach(function(it,i){
+    var flds = FIELDS[it.track] || FIELDS.reps, n = setsOf(s,i);
     h += '<article class="card exc"><header><div class="nm">'+esc(it.name)+'</div>'+
          '<div class="tg">'+it.sets+' × '+esc(it.rep)+(it.target?' · '+esc(it.target):'')+'</div>'+
          '<button class="restchip'+(CFG.rest.on?'':' off')+'" data-rex="'+i+'">'+
@@ -1368,7 +1464,7 @@ function drawSets(){
       b.setAttribute('aria-pressed', now?'true':'false');
       tr.className = now?'on':'';
       save(openId); updProg();
-      if(now) startRest(restFor(byId(openId).items[i])); else stopRest();
+      if(now) startRest(restFor(itemsOf(byId(openId))[i])); else stopRest();
     };
   });
   body.querySelectorAll('[data-rex]').forEach(function(b){
@@ -1380,7 +1476,7 @@ function drawSets(){
   body.querySelectorAll('[data-rd]').forEach(function(b){
     b.onclick = function(){
       var parts = b.dataset.rd.split('|'), i = +parts[0], act = parts[1];
-      var it = byId(openId).items[i];
+      var it = itemsOf(byId(openId))[i];
       if(act === 'start'){ if(!started()) startSession(); startRest(restFor(it)); return; }
       var v = Math.max(0, Math.min(600, restFor(it) + (+act)));
       CFG.rest.by[it.name] = v; cfgSave();
