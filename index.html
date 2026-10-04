@@ -763,7 +763,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
-var BUILD = 'v11 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
+var BUILD = 'v12 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 
 /* Which file did this page actually come from, and is it running as an
    installed app or inside the browser? Without this you cannot tell a stale
@@ -1426,24 +1426,16 @@ window.addEventListener('beforeinstallprompt', function(e){
   if(view === 'setup') render();
 });
 
-/* No service worker any more — see sw.js for why. This page actively cleans up
-   after the old one: whenever a current copy loads (which is possible from any
-   address the stale cache never stored), it tears down every registration and
-   cache on the way past. That is what lets a working page repair the addresses
-   that were not working. */
+/* The worker is back, because Chrome only offers "Install" to a site that has
+   one. It is deliberately network-only for the page — see sw.js. Registering it
+   is what makes the install prompt appear; it is not what keeps the app
+   current, that is the version check below. */
 if('serviceWorker' in navigator){
-  try{
-    navigator.serviceWorker.getRegistrations().then(function(regs){
-      regs.forEach(function(r){ try{ r.unregister(); }catch(e){} });
-    }).catch(function(){});
-  }catch(e){}
-}
-if(window.caches && caches.keys){
-  try{
-    caches.keys().then(function(keys){
-      keys.forEach(function(k){ try{ caches.delete(k); }catch(e){} });
-    }).catch(function(){});
-  }catch(e){}
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js', {updateViaCache:'none'})
+      .then(function(reg){ try{ reg.update(); }catch(e){} })
+      .catch(function(){});
+  });
 }
 
 /* GitHub Pages serves this file with Cache-Control: max-age=600 and will not
