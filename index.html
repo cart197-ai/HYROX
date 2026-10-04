@@ -763,7 +763,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
-var BUILD = 'v9 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
+var BUILD = 'v10 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 
 /* Which file did this page actually come from, and is it running as an
    installed app or inside the browser? Without this you cannot tell a stale
@@ -776,7 +776,11 @@ function openedFrom(){
     standalone = window.matchMedia('(display-mode: standalone)').matches ||
                  window.navigator.standalone === true;
   }catch(e){}
-  return p + (location.search || '') + ' · ' + (standalone ? 'app' : 'browser');
+  var sw = '';
+  try{
+    if(navigator.serviceWorker && navigator.serviceWorker.controller) sw = ' · cached';
+  }catch(e){}
+  return p + (location.search || '') + ' · ' + (standalone ? 'app' : 'browser') + sw;
 }
 var HEVY = {key:'', last:0, lastMsg:'', over:false};
 var HEVY_BUSY = false;
@@ -1422,24 +1426,24 @@ window.addEventListener('beforeinstallprompt', function(e){
   if(view === 'setup') render();
 });
 
-/* Keep the installed app current by itself. The home screen icon used to be
-   able to sit on an old build indefinitely: it launches a fixed URL, the old
-   worker answered it from cache, and nothing ever forced a check. Now every
-   launch asks for a new worker, and when one takes over the page reloads once
-   so you are looking at it immediately. */
+/* No service worker any more — see sw.js for why. This page actively cleans up
+   after the old one: whenever a current copy loads (which is possible from any
+   address the stale cache never stored), it tears down every registration and
+   cache on the way past. That is what lets a working page repair the addresses
+   that were not working. */
 if('serviceWorker' in navigator){
-  var swReloaded = false;
-  navigator.serviceWorker.addEventListener('controllerchange', function(){
-    if(swReloaded) return;
-    swReloaded = true;
-    location.reload();
-  });
-  window.addEventListener('load', function(){
-    navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(function(reg){
-      try{ reg.update(); }catch(e){}
-      setInterval(function(){ try{ reg.update(); }catch(e){} }, 3600000);
+  try{
+    navigator.serviceWorker.getRegistrations().then(function(regs){
+      regs.forEach(function(r){ try{ r.unregister(); }catch(e){} });
     }).catch(function(){});
-  });
+  }catch(e){}
+}
+if(window.caches && caches.keys){
+  try{
+    caches.keys().then(function(keys){
+      keys.forEach(function(k){ try{ caches.delete(k); }catch(e){} });
+    }).catch(function(){});
+  }catch(e){}
 }
 
 render();

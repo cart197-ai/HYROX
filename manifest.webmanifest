@@ -2,7 +2,7 @@
   "name": "Hyrox",
   "short_name": "Hyrox",
   "description": "12-week Hyrox training plan with set-by-set logging.",
-  "start_url": "./index.html?app=9",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
