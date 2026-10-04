@@ -777,7 +777,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
-var BUILD = 'v14 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
+var BUILD = 'v15 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 
 /* Which file did this page actually come from, and is it running as an
    installed app or inside the browser? Without this you cannot tell a stale
@@ -831,6 +831,13 @@ function hevyMmss(sec){
   if(sec==null) return '';
   return Math.floor(sec/60)+':'+String(Math.round(sec)%60).padStart(2,'0');
 }
+
+/* Each plan exercise, by the Hevy exercise it IS — the app's own copy, not read
+   back from the Hevy routine. Reading it from the routine was a mistake: edit a
+   routine in Hevy and the lists no longer line up, the code fell back to
+   matching by position, and a Plank you did landed on the Wall Ball line. These
+   ids never move. Day 4 is absent on purpose: it is rounds, matched by superset. */
+var PLAN_TIDS = {"w1d1":["D04AC939","7757171F","B5D3A742","A1F47ACC","D8911FC4"],"w1d2":["5D99A2FA","0222DB42","1B2B1E7C","3601968B","A1F47ACC"],"w1d3":["2B4B7310","50C613D0","F30A4F01","115CC72C","B9380898"],"w2d1":["D04AC939","7757171F","B5D3A742","A1F47ACC","970ADF87"],"w2d2":["5D99A2FA","0222DB42","1B2B1E7C","878CD1D0","A1F47ACC"],"w2d3":["2B4B7310","50C613D0","F30A4F01","115CC72C","B9380898"],"w3d1":["D04AC939","7757171F","B5D3A742","A1F47ACC","7593855D"],"w3d2":["5D99A2FA","0222DB42","729237D1","A1F47ACC"],"w3d3":["C6272009","50C613D0","F30A4F01","115CC72C","B9380898"],"w4d1":["D04AC939","7757171F","A1F47ACC"],"w4d2":["5D99A2FA","0222DB42"],"w4d3":["A1F47ACC","115CC72C"],"w5d1":["D04AC939","7757171F","BF6ECE89","A1F47ACC","E3EDA509"],"w5d2":["5D99A2FA","0222DB42","7D1BD41D","1B2B1E7C","A1F47ACC"],"w5d3":["C6272009","50C613D0","F30A4F01","115CC72C","08590920"],"w6d1":["D04AC939","7757171F","B5D3A742","A1F47ACC","D8911FC4"],"w6d2":["5D99A2FA","0222DB42","7D1BD41D","1B2B1E7C","A1F47ACC"],"w6d3":["C6272009","50C613D0","F30A4F01","115CC72C","B9380898"],"w7d1":["D04AC939","7757171F","BF6ECE89","A1F47ACC"],"w7d2":["5D99A2FA","0222DB42","7D1BD41D","729237D1","A1F47ACC"],"w7d3":["C6272009","50C613D0","F30A4F01","115CC72C","B9380898"],"w8d1":["D04AC939","7757171F","A1F47ACC"],"w8d2":["5D99A2FA","0222DB42","1B2B1E7C"],"w9d1":["5046D0A9","7757171F","B5D3A742","A1F47ACC"],"w9d2":["5D99A2FA","0222DB42","7D1BD41D","729237D1","A1F47ACC"],"w9d3":["C6272009","50C613D0","F30A4F01","115CC72C"],"w10d1":["D04AC939","7757171F","A1F47ACC"],"w10d2":["5D99A2FA","0222DB42","7D1BD41D","1B2B1E7C"],"w10d3":["C6272009","50C613D0","F30A4F01","115CC72C","08590920"],"w11d1":["D04AC939","7757171F","A1F47ACC"],"w11d2":["5D99A2FA","0222DB42","7D1BD41D","1B2B1E7C"],"w11d3":["C6272009","50C613D0","F30A4F01","115CC72C"],"w12d1":["D04AC939","7757171F","A1F47ACC"],"w12d2":["5D99A2FA","0222DB42","A1F47ACC"]};
 
 /* What kind of thing is this, judged by what Hevy recorded against it? Used for
    an exercise the plan never mentioned, so there is no track to look up. */
@@ -887,16 +894,17 @@ function hevyGroups(s, w, planIds){
     return {groups: groups, extras: leftover};
   }
 
-  var byId = planIds && planIds.length === s.items.length;
+  /* the app's own ids first; the routine's only as a fallback; position last */
+  var want = PLAN_TIDS[s.id] || planIds || null;
   groups = s.items.map(function(_, idx){
-    if(byId){
-      var want = planIds[idx];
+    var id = want && want[idx];
+    if(id){
       for(var k = 0; k < ex.length; k++){
-        if(!used[k] && want && ex[k].exercise_template_id === want){ used[k] = true; return [ex[k]]; }
+        if(!used[k] && ex[k].exercise_template_id === id){ used[k] = true; return [ex[k]]; }
       }
-      return [];
+      return [];   /* planned but not done — a swap, left unticked */
     }
-    if(idx < ex.length && !used[idx]){ used[idx] = true; return [ex[idx]]; }
+    if(!want && idx < ex.length && !used[idx]){ used[idx] = true; return [ex[idx]]; }
     return [];
   });
   return {groups: groups, extras: ex.filter(function(e, k){ return !used[k]; })};
