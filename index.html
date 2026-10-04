@@ -763,7 +763,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
-var BUILD = 'v10 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
+var BUILD = 'v11 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 
 /* Which file did this page actually come from, and is it running as an
    installed app or inside the browser? Without this you cannot tell a stale
@@ -1445,6 +1445,33 @@ if(window.caches && caches.keys){
     }).catch(function(){});
   }catch(e){}
 }
+
+/* GitHub Pages serves this file with Cache-Control: max-age=600 and will not
+   let that header be changed, so the browser is entitled to hand you a copy up
+   to ten minutes old — or older again once an installed app relaunches against
+   it — without ever asking the server. That is the whole reason a ?v= address
+   always worked while the plain one stayed stale: a new query is a cache key
+   the browser has never seen, so it has to go and fetch it.
+
+   version.txt is tiny and fetched with cache:'no-store', which bypasses that
+   cache. If it names a build newer than this one, the page sends itself to a
+   fresh address and comes back current. KEEP version.txt IN STEP WITH BUILD. */
+(function(){
+  if(!window.fetch) return;
+  fetch('version.txt?t=' + Date.now(), {cache:'no-store'})
+    .then(function(r){ return r.ok ? r.text() : null; })
+    .then(function(txt){
+      if(!txt) return;
+      var server = txt.trim(), mine = BUILD.split(' ')[0];
+      if(!server || server === mine) return;
+      /* if we already came back on this version and still disagree, stop —
+         better a stale page than a reload loop */
+      var tried = (location.search.match(/[?&]b=([^&]*)/) || [])[1];
+      if(tried && decodeURIComponent(tried) === server) return;
+      location.replace(location.pathname + '?b=' + encodeURIComponent(server) + location.hash);
+    })
+    .catch(function(){});
+})();
 
 render();
 </script>
