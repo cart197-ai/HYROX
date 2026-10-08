@@ -377,7 +377,7 @@ function E(name, track, weeks){ return {name:name, track:track, weeks:weeks}; }
 var TEMPLATES = {
 1:{title:'Lower Strength + Sled Push', items:[
   E('Back Squat','wr',['3x8|50 kg · RPE 6','4x8|50 kg · RPE 6.5','4x6|50 kg · RPE 7.5','3x6|50 kg · deload','4x6|50 kg · RPE 7.5','4x5|50 kg · RPE 8','5x5|50 kg · RPE 8','3x5|50 kg · RPE 6.5','4x5|50 kg · front squat','4x4|50 kg · RPE 8.5','3x5|50 kg · RPE 7.5','2x5|50 kg · taper']),
-  E('Sled Push','kgm',['4x25|92.5 kg total','5x25|92.5 kg total','4x50|92.5 kg total','3x25|92.5 kg total','5x50|92.5 kg total','4x50|92.5 kg total','5x50|92.5 kg total','3x25|92.5 kg total','4x50|92.5 kg total','5x50|92.5 kg total','4x50|92.5 kg total · for speed','3x25|92.5 kg total · easy']),
+  E('Sled Push','kgm',['4x25|92.5 kg total · 60% race','5x25|100 kg total','4x50|115 kg total','3x25|92.5 kg total · deload','5x50|120 kg total','4x50|130 kg total','5x50|137 kg total','3x25|105 kg total · deload','4x50|152 kg total · race load','5x50|160 kg total · overload','4x50|152 kg total · for speed','3x25|152 kg total · easy']),
   E('Bulgarian Split Squat','wr',['3x8|20 kg each leg','3x10|20 kg each leg','4x8|20 kg each leg',null,'3x10|step-up · 2 x 15 kg','4x8|20 kg each leg','3x12|step-up · 2 x 15 kg',null,'3x8|20 kg each leg',null,null,null]),
   E('Wall Ball','reps',['4x15|6 kg to 3 m','5x15|6 kg','6x15|6 kg','3x12|6 kg','5x20|6 kg · 100 total','4x25|6 kg','3x40|6 kg · 120 total','3x15|6 kg','2x50|6 kg','3x40|50 / 40 / 40','1x100|unbroken attempt','3x15|6 kg']),
   E('Core','reps',['3x10|dead bug, each side','3x30|hollow hold, seconds','4x30|suitcase carry, m each',null,'3x30|side plank, sec each','3x12|dead bug, each side',null,null,null,null,null,null])
@@ -777,7 +777,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
-var BUILD = 'v17 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
+var BUILD = 'v18 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 
 /* Which file did this page actually come from, and is it running as an
    installed app or inside the browser? Without this you cannot tell a stale
