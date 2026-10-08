@@ -450,10 +450,26 @@ for(var w=1; w<=12; w++){
       items = SPECIAL[key].slice();
       title = TITLE_OVERRIDE[key] || 'Session';
     } else if(d===4){
-      title = D4TITLE[w];
+      /* A finisher is not a round. Numbering it "Round 4" next to a header
+         saying "3 rounds" is what made this look broken — the week 1 session
+         really is 3 rounds plus an easy row to finish. Rounds are numbered on
+         their own count, and anything that is just a run with no station says
+         so, since that is a consequence of dropping wall balls. */
+      var rounds = 0;
       items = D4[w].map(function(t,i){
-        return {name:(D4[w].length>1 && w!==4 ? 'Round '+(i+1) : 'Session'), track:'time', sets:1, rep:'1', target:t};
+        var finisher = /to finish/i.test(t);
+        var bare = !finisher && t.indexOf('+') === -1;
+        var nm;
+        if(D4[w].length === 1 || w === 4) nm = 'Session';
+        else if(finisher) nm = 'Finisher';
+        else { rounds++; nm = 'Round ' + rounds; }
+        return {name:nm, track:'time', sets:1, rep:'1',
+                target: t + (bare ? ' · run only, no station' : '')};
       });
+      /* the header is counted, never typed, so it cannot drift from the rounds */
+      title = (w===4 || w===8 || w===11 || w===12)
+        ? D4TITLE[w]
+        : 'Hyrox Specific · ' + rounds + ' rounds';
     } else {
       title = TITLE_OVERRIDE[key] || TEMPLATES[d].title;
       TEMPLATES[d].items.forEach(function(it){
@@ -776,7 +792,7 @@ function viewHistory(){
    Sync pulls finished workouts back, with the numbers actually lifted, and
    dates each session to the day it was really done. The key lives in this
    browser only — it is never part of the file. */
-var BUILD = 'v19 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
+var BUILD = 'v20 · Hevy sync';   /* shown on Setup so you can tell which build you are on */
 
 /* Which file did this page actually come from, and is it running as an
    installed app or inside the browser? Without this you cannot tell a stale
